@@ -1,0 +1,93 @@
+<!-- @dsCard group="Components" -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Kinetic — Buttons</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; padding: 28px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #080B0A; color: #F2F6F4;
+  -webkit-font-smoothing: antialiased;
+}
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -.4px; margin: 0 0 4px; }
+.sub { font-size: 13px; color: #8DA09A; margin: 0 0 24px; }
+.grid { display: grid; gap: 14px; }
+.row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+.panel {
+  background: #101514; border: 1px solid #232E2C;
+  border-radius: 22px; padding: 18px;
+}
+.panel.light { background: #FFFFFF; border-color: #E2EAE7; color: #0A1310; }
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; color: #5C6D68; margin-bottom: 10px;
+}
+.panel.light .eyebrow { color: #93A29D; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.muted { color: #8DA09A; }
+.faint { color: #5C6D68; }
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  height:48px; padding:0 22px; border-radius:999px;
+  font-size:15px; font-weight:600; border:0; cursor:default;
+}
+.btn.lg { height:56px; padding:0 26px; }
+.btn.primary { background:linear-gradient(135deg, #8CFF6B, #00C878); color:#04150D; }
+.btn.secondary { background:#171F1D; color:#F2F6F4; }
+.btn.ghost { background:transparent; color:#8DA09A; }
+.btn.danger { background:#171F1D; color:#FF5C5C; border:1px solid #FF5C5C55; }
+.btn.disabled { opacity:.45; }
+.light .btn.secondary { background:#EFF4F2; color:#0A1310; }
+.light .btn.ghost { color:#5E706B; }
+</style>
+</head><body>
+<h1>Buttons</h1>
+<p class="sub">Pill geometry across the board. One gradient primary per screen — if two things are equally important, neither is primary.</p>
+
+<div class="row">
+  <div class="panel" style="flex:1; min-width:300px">
+    <div class="eyebrow">Dark</div>
+    <div class="row">
+      <button class="btn primary">Start run</button>
+      <button class="btn secondary">Pause</button>
+      <button class="btn ghost">Cancel</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn danger">Discard</button>
+      <button class="btn primary disabled">Waiting for GPS</button>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary lg" style="flex:1">Large — full width</button>
+    </div>
+  </div>
+
+  <div class="panel light" style="flex:1; min-width:300px">
+    <div class="eyebrow">Light</div>
+    <div class="row">
+      <button class="btn primary">Start run</button>
+      <button class="btn secondary">Pause</button>
+      <button class="btn ghost">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div style="height:14px"></div>
+<div class="panel">
+  <div class="eyebrow">The start control</div>
+  <div class="row" style="align-items:center; gap:28px">
+    <div style="width:156px; height:156px; border-radius:78px; background:#17E48F;
+                display:flex; align-items:center; justify-content:center;
+                color:#04150D; font-size:28px; font-weight:700; letter-spacing:2px">START</div>
+    <div style="width:156px; height:156px; border-radius:78px; background:#171F1D;
+                display:flex; align-items:center; justify-content:center;
+                color:#5C6D68; font-size:28px; font-weight:700; letter-spacing:2px;
+                outline:2px solid #17E48F; outline-offset:8px">START</div>
+    <p class="sub" style="margin:0; max-width:280px">
+      156pt circle — the only control on the pre-run screen, reachable with a thumb.
+      While GPS is still acquiring it drops to a disabled fill and a halo pulses outward
+      until a fix lands within 25m.
+    </p>
+  </div>
+</div></body></html>

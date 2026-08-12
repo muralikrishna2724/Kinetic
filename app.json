@@ -1,25 +1,69 @@
 {
   "expo": {
     "name": "Kinetic",
-    "slug": "Kinetic",
+    "slug": "kinetic",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": "kinetic",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "backgroundColor": "#080B0A",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080B0A",
+      "dark": {
+        "image": "./assets/splash-icon.png",
+        "backgroundColor": "#080B0A"
+      }
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "app.kinetic.running",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Kinetic uses your location to measure the distance, pace and route of your runs.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Kinetic keeps recording your route when your screen is off or you switch apps, so a run is never cut short.",
+        "NSLocationAlwaysUsageDescription": "Kinetic keeps recording your route when your screen is off or you switch apps, so a run is never cut short.",
+        "NSMotionUsageDescription": "Kinetic uses motion data to detect when you have paused during a run.",
+        "UIBackgroundModes": ["location"]
+      }
     },
     "android": {
+      "package": "app.kinetic.running",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#080B0A",
+        "foregroundImage": "./assets/adaptive-icon.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "WAKE_LOCK"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Kinetic uses your location to measure the distance, pace and route of your runs.",
+          "locationAlwaysAndWhenInUsePermission": "Kinetic keeps recording your route when your screen is off or you switch apps, so a run is never cut short.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
     }
   }
 }

@@ -1,0 +1,123 @@
+<!-- @dsCard group="Components" -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Kinetic — Navigation</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; padding: 28px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #080B0A; color: #F2F6F4;
+  -webkit-font-smoothing: antialiased;
+}
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -.4px; margin: 0 0 4px; }
+.sub { font-size: 13px; color: #8DA09A; margin: 0 0 24px; }
+.grid { display: grid; gap: 14px; }
+.row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+.panel {
+  background: #101514; border: 1px solid #232E2C;
+  border-radius: 22px; padding: 18px;
+}
+.panel.light { background: #FFFFFF; border-color: #E2EAE7; color: #0A1310; }
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; color: #5C6D68; margin-bottom: 10px;
+}
+.panel.light .eyebrow { color: #93A29D; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.muted { color: #8DA09A; }
+.faint { color: #5C6D68; }
+</style>
+</head><body>
+<h1>Navigation</h1>
+<p class="sub">A floating bar with the run action raised into the middle. Starting a run pushes a modal, so the tab bar is unreachable mid-record — a stray thumb can't abandon a recording.</p>
+
+
+<div class="panel " style="margin-bottom:14px; background:#080B0A">
+  <div class="eyebrow">Dark</div>
+  <div style="position:relative; padding:24px 16px 16px">
+    <div style="display:flex; align-items:center; background:#101514;
+                border:1px solid #232E2C; border-radius:28px; padding:8px 4px">
+      <div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#17E48F;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#17E48F">Home</div>
+          </div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#5C6D68;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#5C6D68">Activity</div>
+          </div><div style="width:74px"></div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#5C6D68;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#5C6D68">Stats</div>
+          </div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#5C6D68;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#5C6D68">Profile</div>
+          </div>
+    </div>
+    <div style="position:absolute; left:0; right:0; top:4px; display:flex; justify-content:center">
+      <div style="width:62px; height:62px; border-radius:31px;
+                  background:linear-gradient(135deg, #8CFF6B, #00C878);
+                  border:4px solid #080B0A; display:flex; align-items:center;
+                  justify-content:center; color:#04150D; font-size:11px;
+                  font-weight:700; letter-spacing:1.1px">RUN</div>
+    </div>
+  </div>
+</div>
+<div class="panel light" style="margin-bottom:14px; background:#F7FAF9">
+  <div class="eyebrow">Light</div>
+  <div style="position:relative; padding:24px 16px 16px">
+    <div style="display:flex; align-items:center; background:#FFFFFF;
+                border:1px solid #E2EAE7; border-radius:28px; padding:8px 4px">
+      <div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#00C878;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#00C878">Home</div>
+          </div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#93A29D;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#93A29D">Activity</div>
+          </div><div style="width:74px"></div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#93A29D;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#93A29D">Stats</div>
+          </div><div style="flex:1; text-align:center">
+            <div style="height:21px; margin-bottom:4px; display:flex; justify-content:center;
+                        align-items:center; color:#93A29D;
+                        font-size:17px">●</div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.1px;
+                        text-transform:uppercase;
+                        color:#93A29D">Profile</div>
+          </div>
+    </div>
+    <div style="position:absolute; left:0; right:0; top:4px; display:flex; justify-content:center">
+      <div style="width:62px; height:62px; border-radius:31px;
+                  background:linear-gradient(135deg, #8CFF6B, #00C878);
+                  border:4px solid #F7FAF9; display:flex; align-items:center;
+                  justify-content:center; color:#04150D; font-size:11px;
+                  font-weight:700; letter-spacing:1.1px">RUN</div>
+    </div>
+  </div>
+</div></body></html>
