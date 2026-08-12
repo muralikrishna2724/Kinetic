@@ -61,6 +61,23 @@ rather than in memory.
   `babel.config.js` — `__workletHash` appears 35 times in the shipped bundle.
   (`babel-preset-expo` auto-detects it in SDK 57.)
 
+### v1.0.1 crash-loop fixes, verified behaviourally
+
+Not by inspection — by injecting the poisoned state into `localStorage` on the
+web build and reloading, which drives the same `restore()` path the phone did:
+
+- An **interrupted run** (recent `kinetic.active.meta.v1`) now boots cleanly,
+  restores, routes to `/run` and shows the live view with the degraded-mode
+  notice. This is the exact state that crash-looped v1.0.0 on every launch.
+- A **stale run** (13 h old) is dropped, both buffer keys are cleared, and the
+  app lands on Home.
+- A **failed start** (permission denied) leaves `kinetic.active.meta.v1` null —
+  nothing is persisted, so there is no half-started run for the next launch to
+  choke on.
+
+Still unproven on Android: the foreground service itself, the real permission
+dialogs, and the notification. Web cannot exercise any of those.
+
 ## NOT verified ❌ — this is the actual job on Linux
 
 Nothing has ever run on real Android hardware or an emulator. The Windows
