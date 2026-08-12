@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type * as Location from 'expo-location';
 
 import { isPlausible, type GeoPoint } from './geo';
 
@@ -96,3 +97,23 @@ export async function clearActive(): Promise<void> {
 export async function hasActiveRun(): Promise<boolean> {
   return (await readMeta()) != null;
 }
+
+/** Lives here rather than in the task file so the tracker can share it without an import cycle. */
+export function toGeoPoint(fix: Location.LocationObject): GeoPoint {
+  return {
+    lat: fix.coords.latitude,
+    lon: fix.coords.longitude,
+    alt: fix.coords.altitude ?? undefined,
+    acc: fix.coords.accuracy ?? undefined,
+    t: fix.timestamp,
+  };
+}
+
+/**
+ * Runs older than this are not offered for resume.
+ *
+ * A stale buffer means the app died and was not reopened for a long time —
+ * silently continuing a run from yesterday would produce a garbage duration,
+ * and blindly re-entering it on every launch is how a crash loop starts.
+ */
+export const MAX_RESUME_AGE_MS = 12 * 60 * 60 * 1000;

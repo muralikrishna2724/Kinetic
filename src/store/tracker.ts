@@ -1,7 +1,16 @@
 import * as Location from 'expo-location';
 import { create } from 'zustand';
 
-import { clearActive, LOCATION_TASK, readMeta, readPoints, writeMeta } from '../lib/activeRun';
+import {
+  clearActive,
+  LOCATION_TASK,
+  MAX_RESUME_AGE_MS,
+  appendPoints,
+  readMeta,
+  readPoints,
+  toGeoPoint,
+  writeMeta,
+} from '../lib/activeRun';
 import { computeSplits, elevationGain, haversine, totalDistance, type GeoPoint } from '../lib/geo';
 import type { Run } from './runs';
 
@@ -17,6 +26,16 @@ export type TrackerStatus =
   /** Permission denied or location services off. */
   | 'denied';
 
+/**
+ * How the current run is being recorded.
+ *
+ * `background` needs "Allow all the time" and keeps recording with the screen
+ * off. `foreground` is the fallback when that was refused — it records only
+ * while Kinetic is on screen, which is worse but is emphatically better than
+ * refusing to record at all.
+ */
+export type RecordingMode = 'background' | 'foreground';
+
 /** Rolling window used for the live pace readout. */
 const PACE_WINDOW_MS = 30_000;
 
@@ -30,29 +49,27 @@ type TrackerState = {
   /** Bumped every second purely to re-render the timer. */
   tick: number;
   accuracy: number | null;
-  /**
-   * Whether "Allow all the time" was granted. Without it the run still records,
-   * but only while Kinetic is on screen.
-   */
   backgroundGranted: boolean;
+  mode: RecordingMode | null;
+  /** Fatal — blocks starting a run. */
   errorMessage: string | null;
+  /** Non-fatal — the run is recording, but with a caveat worth showing. */
+  notice: string | null;
 
   prepare: () => Promise<void>;
   start: () => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
-  /** Ends the run and returns it, or null if it was too short to keep. */
   finish: () => Promise<Run | null>;
   discard: () => Promise<void>;
-  /** Called by the location task with the full persisted track. */
   ingest: (points: GeoPoint[]) => void;
-  /** Re-reads the durable buffer — used on app foreground. */
   syncFromStorage: () => Promise<void>;
-  /** Picks a run back up after the app was killed or backgrounded. */
+  /** Restores state after a kill. Deliberately starts no location updates. */
   restore: () => Promise<boolean>;
+  /** Re-arms location for a restored run. Safe to call repeatedly. */
+  reattach: () => Promise<void>;
 };
 
-/** Pre-run watcher. Only alive while acquiring a first fix. */
 let watcher: Location.LocationSubscription | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -66,42 +83,75 @@ function stopTimer() {
   timer = null;
 }
 
-function startTimer(set: (partial: Partial<TrackerState>) => void, get: () => TrackerState) {
+function startTimer(set: (p: Partial<TrackerState>) => void, get: () => TrackerState) {
   stopTimer();
   timer = setInterval(() => set({ tick: get().tick + 1 }), 1000);
 }
 
-async function startLocationUpdates() {
-  const already = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
-  if (already) return;
+/**
+ * Brings location up, preferring the background service.
+ *
+ * Returns the mode that actually started, or null if neither could. **Nothing
+ * in here is allowed to throw.** Both paths fail for ordinary, user-reachable
+ * reasons — background location refused, or Android 12+ refusing to let a
+ * foreground service start from a cold launch — and an escaping rejection here
+ * is what previously took the whole app down on every launch.
+ */
+async function beginRecording(): Promise<RecordingMode | null> {
+  // Preferred: the foreground service, which survives the screen going off.
+  try {
+    const running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(
+      () => false,
+    );
+    if (running) return 'background';
 
-  await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-    accuracy: Location.Accuracy.BestForNavigation,
-    timeInterval: 1000,
-    distanceInterval: 1,
-    // Let iOS know this is a workout so it tunes the GPS duty cycle for it.
-    activityType: Location.ActivityType.Fitness,
-    // iOS will otherwise stop updates when it thinks you've stopped moving,
-    // which silently truncates a run at a long traffic light.
-    pausesUpdatesAutomatically: false,
-    showsBackgroundLocationIndicator: true,
-    // Android requires an ongoing notification to keep delivering location once
-    // the app leaves the foreground. This is what makes it survive a locked screen.
-    foregroundService: {
-      notificationTitle: 'Kinetic is recording',
-      notificationBody: 'Tracking your run — tap to return',
-      notificationColor: '#17E48F',
-      killServiceOnDestroy: false,
-    },
-  });
+    await Location.startLocationUpdatesAsync(LOCATION_TASK, {
+      accuracy: Location.Accuracy.BestForNavigation,
+      timeInterval: 1000,
+      distanceInterval: 1,
+      activityType: Location.ActivityType.Fitness,
+      // iOS will otherwise stop updates when it decides you've stopped moving,
+      // silently truncating a run at a long traffic light.
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: 'Kinetic is recording',
+        notificationBody: 'Tracking your run — tap to return',
+        notificationColor: '#17E48F',
+        killServiceOnDestroy: false,
+      },
+    });
+    return 'background';
+  } catch {
+    // Almost always: ACCESS_BACKGROUND_LOCATION not granted. Degrade.
+  }
+
+  // Fallback: an in-process watcher. Same durable write path, so the rest of
+  // the app cannot tell the difference.
+  try {
+    stopWatching();
+    watcher = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 1 },
+      (fix) => {
+        if (useTracker.getState().status !== 'running') return;
+        appendPoints([toGeoPoint(fix)])
+          .then((points) => useTracker.getState().ingest(points))
+          .catch(() => {});
+      },
+    );
+    return 'foreground';
+  } catch {
+    return null;
+  }
 }
 
 async function stopLocationUpdates() {
+  stopWatching();
   try {
     const running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
     if (running) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
   } catch {
-    // Task was never registered, or already torn down.
+    // Never registered, or already torn down.
   }
 }
 
@@ -115,7 +165,9 @@ const initial = {
   tick: 0,
   accuracy: null as number | null,
   backgroundGranted: false,
+  mode: null as RecordingMode | null,
   errorMessage: null as string | null,
+  notice: null as string | null,
 };
 
 export const useTracker = create<TrackerState>((set, get) => ({
@@ -123,7 +175,7 @@ export const useTracker = create<TrackerState>((set, get) => ({
 
   prepare: async () => {
     // A run restored from a previous session must not be wiped by the pre-run
-    // screen re-preparing on mount.
+    // screen preparing on mount.
     if (get().status === 'running' || get().status === 'paused') return;
 
     set({ ...initial, status: 'acquiring' });
@@ -147,9 +199,10 @@ export const useTracker = create<TrackerState>((set, get) => ({
         return;
       }
 
-      // Asked separately, and only after foreground is granted — that is the
-      // order Android 11+ requires, and asking for both at once gets the
-      // background prompt suppressed entirely.
+      // Asked separately, and only after foreground is granted — the order
+      // Android 11+ requires. Note this does NOT show a normal dialog there: it
+      // sends the user to app settings to pick "Allow all the time", so a denial
+      // is the common case and must never be treated as fatal.
       const background = await Location.requestBackgroundPermissionsAsync().catch(() => null);
       set({ backgroundGranted: background?.status === 'granted' });
 
@@ -174,15 +227,38 @@ export const useTracker = create<TrackerState>((set, get) => ({
     const now = Date.now();
     const startedAt = get().startedAt ?? now;
 
-    // Hand off from the pre-run watcher to the background service — running both
-    // would double-deliver every fix.
+    // Hand off from the pre-run watcher — running both would double-deliver.
     stopWatching();
 
+    const mode = await beginRecording();
+    if (!mode) {
+      // Nothing was persisted, so there is no half-started run to trip over on
+      // the next launch. Put the user back on the pre-run screen.
+      set({
+        status: 'denied',
+        errorMessage: 'Kinetic could not start location updates. Check location permissions.',
+      });
+      return;
+    }
+
+    // Only now is there genuinely a run in progress. Persisting before this is
+    // what previously left an unstartable run on disk and crash-looped the app.
     await writeMeta({ startedAt, accumulatedMs: 0, segmentStartedAt: now });
-    set({ status: 'running', startedAt, segmentStartedAt: now, accumulatedMs: 0 });
+
+    set({
+      status: 'running',
+      startedAt,
+      segmentStartedAt: now,
+      accumulatedMs: 0,
+      mode,
+      errorMessage: null,
+      notice:
+        mode === 'foreground'
+          ? 'Recording while Kinetic is open. Allow location “all the time” to keep tracking with the screen off.'
+          : null,
+    });
 
     startTimer(set, get);
-    await startLocationUpdates();
   },
 
   pause: async () => {
@@ -192,9 +268,9 @@ export const useTracker = create<TrackerState>((set, get) => ({
     set({ status: 'paused', accumulatedMs: banked, segmentStartedAt: null });
     stopTimer();
 
-    // Keep the service alive across a pause. Tearing it down and standing it
-    // back up costs several seconds of GPS reacquisition on resume; the task
-    // itself drops fixes while segmentStartedAt is null.
+    // Keep the service alive across a pause — tearing it down and standing it
+    // back up costs seconds of GPS reacquisition. Both recording paths drop
+    // fixes while segmentStartedAt is null.
     if (startedAt != null) {
       await writeMeta({ startedAt, accumulatedMs: banked, segmentStartedAt: null });
     }
@@ -210,7 +286,10 @@ export const useTracker = create<TrackerState>((set, get) => ({
     if (startedAt != null) {
       await writeMeta({ startedAt, accumulatedMs, segmentStartedAt: now });
     }
-    await startLocationUpdates();
+    if (!get().mode) {
+      const mode = await beginRecording();
+      if (mode) set({ mode });
+    }
   },
 
   finish: async () => {
@@ -219,11 +298,10 @@ export const useTracker = create<TrackerState>((set, get) => ({
       state.accumulatedMs + (state.segmentStartedAt ? Date.now() - state.segmentStartedAt : 0);
 
     stopTimer();
-    stopWatching();
     await stopLocationUpdates();
 
-    // Take the durable copy as the source of truth — it includes anything the
-    // background task recorded while the UI was not mounted.
+    // The durable copy is authoritative — it includes anything recorded while
+    // the UI was not mounted.
     const points = await readPoints();
     const distanceMeters = totalDistance(points);
 
@@ -253,14 +331,13 @@ export const useTracker = create<TrackerState>((set, get) => ({
 
   discard: async () => {
     stopTimer();
-    stopWatching();
     await stopLocationUpdates();
     await clearActive();
     set({ ...initial });
   },
 
   ingest: (points) => {
-    // Ignore late deliveries that arrive after the run was finished or discarded.
+    // Ignore late deliveries arriving after the run was finished or discarded.
     const { status } = get();
     if (status !== 'running' && status !== 'paused') return;
     set({
@@ -279,28 +356,57 @@ export const useTracker = create<TrackerState>((set, get) => ({
   },
 
   restore: async () => {
-    const meta = await readMeta();
-    if (!meta) return false;
+    // Runs during app hydration, so it must not throw and must not start a
+    // foreground service — Android 12+ forbids starting one from a cold launch,
+    // and an unguarded attempt here crash-looped the app on every open.
+    try {
+      const meta = await readMeta();
+      if (!meta) return false;
 
-    const points = await readPoints();
-    set({
-      status: meta.segmentStartedAt == null ? 'paused' : 'running',
-      startedAt: meta.startedAt,
-      accumulatedMs: meta.accumulatedMs,
-      segmentStartedAt: meta.segmentStartedAt,
-      points,
-      distanceMeters: totalDistance(points),
-      accuracy: points[points.length - 1]?.acc ?? null,
-      backgroundGranted: true,
-      errorMessage: null,
-    });
+      if (Date.now() - meta.startedAt > MAX_RESUME_AGE_MS) {
+        await clearActive();
+        return false;
+      }
 
-    if (meta.segmentStartedAt != null) {
-      startTimer(set, get);
-      // The service may have been torn down with the process; bring it back.
-      await startLocationUpdates();
+      const points = await readPoints();
+      set({
+        status: meta.segmentStartedAt == null ? 'paused' : 'running',
+        startedAt: meta.startedAt,
+        accumulatedMs: meta.accumulatedMs,
+        segmentStartedAt: meta.segmentStartedAt,
+        points,
+        distanceMeters: totalDistance(points),
+        accuracy: points[points.length - 1]?.acc ?? null,
+        mode: null,
+        errorMessage: null,
+        notice: null,
+      });
+
+      if (meta.segmentStartedAt != null) startTimer(set, get);
+      return true;
+    } catch {
+      // A buffer we cannot parse is worse than no buffer — drop it rather than
+      // failing the same way on every subsequent launch.
+      await clearActive().catch(() => {});
+      return false;
     }
-    return true;
+  },
+
+  reattach: async () => {
+    const { status, mode } = get();
+    if (status !== 'running' && status !== 'paused') return;
+    if (mode) return;
+
+    const next = await beginRecording();
+    set({
+      mode: next,
+      notice:
+        next === 'foreground'
+          ? 'Recording while Kinetic is open. Allow location “all the time” to keep tracking with the screen off.'
+          : next == null
+            ? 'Location updates could not be restarted. Finish the run to keep what was recorded.'
+            : null,
+    });
   },
 }));
 

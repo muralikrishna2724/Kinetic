@@ -46,8 +46,15 @@ export default function RunScreen() {
   const isLive = tracker.status === 'running' || tracker.status === 'paused';
 
   useEffect(() => {
-    // No-ops when a run was just restored from the durable buffer.
-    tracker.prepare();
+    const { status } = useTracker.getState();
+    if (status === 'running' || status === 'paused') {
+      // Restored from a kill. restore() deliberately starts no location updates
+      // — Android 12+ blocks starting a foreground service from a cold launch —
+      // so re-arm it here, now that the app is genuinely in the foreground.
+      useTracker.getState().reattach();
+    } else {
+      tracker.prepare();
+    }
     // Releasing the GPS subscription on unmount is handled by discard/finish;
     // this only runs the initial acquisition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,6 +427,27 @@ function LiveView({
           <Icon name="pause" size={14} color={colors.warning} />
           <Text variant="caption" color="muted">
             Paused — the clock is stopped
+          </Text>
+        </View>
+      )}
+
+      {/* Says plainly that recording is degraded, rather than letting the user
+          discover it when the screen locks and the track stops. */}
+      {tracker.notice && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space.sm,
+            backgroundColor: colors.surfaceAlt,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
+            borderRadius: radius.lg,
+          }}
+        >
+          <Icon name="lock" size={15} color={colors.warning} />
+          <Text variant="caption" color="muted" style={{ flexShrink: 1 }}>
+            {tracker.notice}
           </Text>
         </View>
       )}

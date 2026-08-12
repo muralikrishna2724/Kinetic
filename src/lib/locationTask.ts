@@ -1,8 +1,7 @@
 import type * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
-import { appendPoints, LOCATION_TASK, readMeta } from './activeRun';
-import type { GeoPoint } from './geo';
+import { appendPoints, LOCATION_TASK, readMeta, toGeoPoint } from './activeRun';
 import { useTracker } from '../store/tracker';
 
 /**
@@ -32,13 +31,3 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
   const points = await appendPoints(locations.map(toGeoPoint));
   useTracker.getState().ingest(points);
 });
-
-function toGeoPoint(fix: Location.LocationObject): GeoPoint {
-  return {
-    lat: fix.coords.latitude,
-    lon: fix.coords.longitude,
-    alt: fix.coords.altitude ?? undefined,
-    acc: fix.coords.accuracy ?? undefined,
-    t: fix.timestamp,
-  };
-}

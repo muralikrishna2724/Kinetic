@@ -1,5 +1,36 @@
 # Handoff — moving Kinetic to Linux
 
+> **Update 2026-08-12, v1.0.1.** The v1.0.0 APK was tested on two real Samsungs
+> and failed on both. Both bugs are fixed; read "Field failures" below before
+> anything else, because they show exactly which assumptions in this document
+> were worth nothing.
+
+## Field failures found on real hardware (v1.0.0)
+
+**1. Would not install on a 32-bit phone (Android 10).** The APK was built
+`arm64-v8a` only, on the stated assumption that arm64 covers every phone since
+~2016. That assumption was wrong for a real device in this user's hands. Release
+APKs now build `armeabi-v7a,arm64-v8a`.
+
+**2. Crash loop on first run (Android 16).** Granting location still reported the
+permission as missing, then the app crashed and crash-looped on every launch.
+Three compounding causes, all fixed:
+
+- Background location was **mandatory with no fallback**. On Android 11+ the
+  "Allow all the time" request opens app settings rather than a dialog, so an
+  ordinary grant leaves it denied — and `startLocationUpdatesAsync` then throws.
+- `start()` persisted the active-run buffer **before** confirming location had
+  started, so that throw left an unstartable run on disk.
+- `restore()` then called `startLocationUpdatesAsync` **unguarded during app
+  hydration** on every launch. Android 12+ forbids starting a foreground service
+  from a cold start, so this crashed every single time, permanently.
+
+The lesson worth carrying: everything in "Verified" below was true and none of it
+caught this. A typecheck, a clean bundle and a browser walkthrough do not
+exercise Android permissions, foreground services, or process lifecycle. **The
+emulator work in this document is not optional polish — it is the first thing
+that would have caught either bug.**
+
 Written 2026-08-12 on Windows, for whoever picks this up on the Linux side.
 Read this before touching anything; it records what is verified, what is *not*,
 and the traps that already cost time once.
@@ -78,6 +109,10 @@ emulator crashed on boot every time (see Traps). Outstanding:
   there. The CLI flag is the only setting that survives a prebuild. (In
   PowerShell the comma needs quoting — `"-PreactNativeArchitectures=a,b"` — or it
   parses as an array and fails with `MissingArgument`. Not an issue in bash.)
+- **Build `armeabi-v7a` too, for phones.** A 32-bit Android 10 Samsung could not
+  install an arm64-only APK at all ("packaged native code did not match any of
+  the ABIs supported by the system"). `arm64-v8a` alone is fine for an emulator
+  target and for modern phones, but not a safe default for real devices.
 - **The Windows emulator is unusable on that machine** — boots to
   `sys.boot_completed=1`, then dies instantly (exit 5, crashpad dialog).
   Reproduced headless at 1536 MB and 1024 MB. Not OOM; the log ends cleanly at

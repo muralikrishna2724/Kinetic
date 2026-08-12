@@ -222,8 +222,24 @@ flowing, and it's mandatory. iOS shows the blue location indicator.
 
 **Permissions are requested in two steps** — foreground first, then "Allow all the
 time". Android 11+ requires that order and suppresses the background prompt entirely
-if you ask for both at once. If background is refused the run still records, and the
-pre-run screen says so plainly rather than letting you find out at the finish line.
+if you ask for both at once.
+
+**Background access is an optimisation, never a requirement.** On Android 11+ the
+"Allow all the time" request is not a dialog at all — it sends the user to the app's
+settings page — so a perfectly normal grant leaves background *denied*. If it is
+missing, `beginRecording()` falls back to an in-process `watchPositionAsync` through
+the same durable write path, and the run screen says plainly that it is only recording
+while Kinetic is open. Treating background as mandatory is how v1.0.0 shipped an app
+that crashed the moment you pressed START.
+
+**Nothing is written to the active-run buffer until recording has actually started.**
+The ordering matters more than it looks: persisting "a run is live" and *then* trying
+to start location means a failure leaves an unstartable run on disk, which the next
+launch faithfully tries to resume — and fails at, identically, forever. `restore()`
+therefore also starts no location updates at all; it restores state only, and the run
+screen re-arms location once the app is genuinely foregrounded. Android 12+ forbids
+starting a foreground service from a cold launch, so doing it during hydration is a
+guaranteed crash on every open.
 
 ## Not built
 
