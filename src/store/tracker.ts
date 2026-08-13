@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import { PermissionsAndroid, Platform } from 'react-native';
 import { create } from 'zustand';
 
 import {
@@ -89,6 +90,28 @@ function startTimer(set: (p: Partial<TrackerState>) => void, get: () => TrackerS
 }
 
 /**
+ * Asks for POST_NOTIFICATIONS on Android 13+.
+ *
+ * Without it the foreground service still runs and the track still grows — but
+ * the system silently drops its ongoing notification, so a run records with no
+ * indication it is happening and no tap-to-return. That notification is the only
+ * affordance telling someone a run is live; losing it is how a run gets
+ * abandoned by accident. Verified on an API 36 emulator: with the permission
+ * absent the appop sits at POST_NOTIFICATION: ignore and the shade stays empty.
+ *
+ * Never fatal — a refusal costs the notification, not the recording.
+ */
+async function requestNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  if (typeof Platform.Version === 'number' && Platform.Version < 33) return;
+  try {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  } catch {
+    // Older Android, or the dialog could not be shown. Recording is unaffected.
+  }
+}
+
+/**
  * Brings location up, preferring the background service.
  *
  * Returns the mode that actually started, or null if neither could. **Nothing
@@ -97,13 +120,23 @@ function startTimer(set: (p: Partial<TrackerState>) => void, get: () => TrackerS
  * foreground service start from a cold launch — and an escaping rejection here
  * is what previously took the whole app down on every launch.
  */
-async function beginRecording(): Promise<RecordingMode | null> {
+async function beginRecording(force = false): Promise<RecordingMode | null> {
   // Preferred: the foreground service, which survives the screen going off.
   try {
-    const running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(
-      () => false,
-    );
-    if (running) return 'background';
+    if (force) {
+      // Re-arming after a process death. TaskManager persists the task
+      // registration, so hasStartedLocationUpdatesAsync still answers `true`
+      // even though the service died with the process — taking the short
+      // circuit below would report 'background' and record nothing at all,
+      // while the UI happily showed RECORDING. Clear the stale registration so
+      // the start call underneath actually stands the service back up.
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK).catch(() => {});
+    } else {
+      const running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(
+        () => false,
+      );
+      if (running) return 'background';
+    }
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK, {
       accuracy: Location.Accuracy.BestForNavigation,
@@ -198,6 +231,11 @@ export const useTracker = create<TrackerState>((set, get) => ({
         });
         return;
       }
+
+      // Before the background request, because that one navigates away to app
+      // settings — asking for notifications afterwards would land the dialog on
+      // top of a screen the user is already trying to get out of.
+      await requestNotificationPermission();
 
       // Asked separately, and only after foreground is granted — the order
       // Android 11+ requires. Note this does NOT show a normal dialog there: it
@@ -397,7 +435,7 @@ export const useTracker = create<TrackerState>((set, get) => ({
     if (status !== 'running' && status !== 'paused') return;
     if (mode) return;
 
-    const next = await beginRecording();
+    const next = await beginRecording(true);
     set({
       mode: next,
       notice:

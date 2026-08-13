@@ -1,5 +1,11 @@
 # Handoff — moving Kinetic to Linux
 
+> **Update 2026-08-13, v1.0.2.** Everything under "NOT verified" has now been run
+> on an Android emulator (API 36, x86_64, KVM) — the emulator work this document
+> called for. Items 1-5 pass; item 6 remains impossible here. Three further bugs
+> surfaced, all of which needed a real Android runtime to see, and all of which
+> are fixed. See "Emulator run, v1.0.2" below.
+>
 > **Update 2026-08-12, v1.0.1.** The v1.0.0 APK was tested on two real Samsungs
 > and failed on both. Both bugs are fixed; read "Field failures" below before
 > anything else, because they show exactly which assumptions in this document
@@ -78,31 +84,74 @@ web build and reloading, which drives the same `restore()` path the phone did:
 Still unproven on Android: the foreground service itself, the real permission
 dialogs, and the notification. Web cannot exercise any of those.
 
-## NOT verified ❌ — this is the actual job on Linux
+## Emulator run, v1.0.2 ✅ — items 1-5 now verified on Android
 
-Nothing has ever run on real Android hardware or an emulator. The Windows
-emulator crashed on boot every time (see Traps). Outstanding:
+Run on a `kinetic_test` AVD (API 36, `google_apis`, x86_64, KVM, headless).
+**The Windows boot-death did not reproduce** — it boots in about 16 s and stays
+up, which is what the move to Linux was for.
 
-1. **Cold launch on a device** — watch `adb logcat` for a native or JS crash.
-   Everything above is bundler- and browser-level; none of it proves the app
-   starts on Android.
-2. **Permission flow** — the two-step foreground → "Allow all the time" prompt.
-   Android 11+ suppresses the background prompt if both are requested at once;
-   the code asks in sequence (`src/store/tracker.ts` → `prepare`). Confirm the
-   pre-run chip reports the granted level correctly.
-3. **A full run** — start, accumulate, pause, resume, finish, save, and check it
-   appears in Activity with sane splits. Use `node scripts/emu-run.mjs` to feed a
-   synthetic route via `adb emu geo fix`.
-4. **Background recording** — the headline feature, entirely unproven. Start a
-   run, send the app home (`adb shell input keyevent KEYCODE_HOME`), lock the
-   screen (`keyevent 26`), keep injecting fixes, and confirm the ongoing
-   notification persists and the track keeps growing.
-5. **Process-death recovery** — `adb shell am force-stop app.kinetic.running`
-   mid-run, relaunch, and confirm `restore()` drops you back into the live run.
-6. **GPS filtering** — `isPlausible()` in `src/lib/geo.ts` rejects fixes with
-   accuracy > 35 m, movement < 1.2 m, or implied speed > 12 m/s. **An emulator
-   cannot test this**: injected coordinates are perfect and never trip it. Only a
-   real phone outdoors exercises it.
+1. **Cold launch** ✅ `Status: ok`, 770 ms, `ReactNativeJS: Running "main"`,
+   empty crash buffer, seeded demo history renders.
+2. **Permission flow** ✅ Foreground dialog first; the background request opens
+   the system Location page rather than a dialog, as Android 12+ does. The
+   pre-run chip was checked **both ways**: "Records with the screen off" when
+   granted, "Screen must stay on — allow location 'all the time'" when refused.
+3. **A full run** ✅ 2.50 km saved and listed in Activity. Pause froze distance
+   *and* clock across 25 s while fixes kept arriving, proving the task drops
+   fixes while `segmentStartedAt` is null. Splits summed to 404.2 s = the exact
+   GPS span, and split metres to 2501.0 m = the exact distance.
+4. **Background recording** ✅ With the screen `Asleep` and the app on the
+   launcher, the track grew 25 → 124 points at ~1 Hz with the ongoing
+   notification alive throughout; the UI caught up via `syncFromStorage` on
+   return. **This is the headline feature, working, on Android.**
+5. **Process-death recovery** ✅ `am force-stop` mid-run, relaunch, and the run
+   resumes *and keeps recording* — 148 → 170 points after the kill, service
+   foreground again. (It did not, before the bug in §3 below was fixed.)
+6. **GPS filtering** ❌ Still impossible here, exactly as predicted — injected
+   coordinates are perfect and never trip `isPlausible()`. **Needs a real phone
+   outdoors.** This is now the only item on the list that a laptop cannot reach.
+
+### Bugs the emulator found (all fixed in v1.0.2)
+
+None of these were reachable from a typecheck, a bundle, or the web build —
+the same lesson as the v1.0.0 field failures, one layer further in.
+
+1. **Crash on every single run start.** `RECEIVE_BOOT_COMPLETED` was never
+   declared, but `expo-task-manager` schedules a *persisted* JobScheduler job to
+   deliver location batches, and a persisted job requires it. The first fix
+   after `start()` threw `IllegalArgumentException: Requested job cannot be
+   persisted...` inside `TaskBroadcastReceiver` and took the process down.
+   Note **`beginRecording()`'s try/catch cannot help here** — the throw happens
+   later, on the main thread, in a broadcast receiver. This hits the *preferred*
+   path hardest: with "Allow all the time" granted the service starts, then dies.
+2. **The ongoing notification was never shown.** `POST_NOTIFICATIONS` was not
+   declared or requested, so on `targetSdk 36` the appop sat at
+   `POST_NOTIFICATION: ignore` and the shade stayed empty. Recording worked, but
+   with no sign a run was live and no tap-to-return — the one affordance that
+   stops a run being swiped away. Now requested in `prepare()`, deliberately
+   *before* the background-location request, which navigates away to settings.
+3. **Silent data loss after process death — the worst of the three.**
+   `beginRecording()` short-circuits on `hasStartedLocationUpdatesAsync()`, which
+   still answers `true` after a kill because TaskManager persists the task
+   registration. So `reattach()` reported mode `'background'`, set no notice, and
+   never restarted the service: **the UI showed RECORDING while nothing was
+   recorded.** Measured at 419 points frozen while fixes kept arriving. Worse
+   than a crash, because it looks like it is working. `reattach()` now forces a
+   `stopLocationUpdatesAsync()` first to clear the stale registration.
+
+### Known-imperfect, deliberately not changed
+
+- **Splits and moving time measure different things and diverge on a real run.**
+  Splits come from GPS timestamps; moving time is wall clock minus pauses. A
+  measured run: 502 s moving vs 404 s of splits. The gap is 159 s of idle after
+  the last fix (counted by moving time, not splits) minus a 60 s pause (counted
+  by splits, not moving time). The "splits reconcile" line under Verified was
+  measured on *seeded* data, which contains no pauses — that is why it held.
+- **A pause inflates distance if you travel during it.** The resume chord was
+  measured at **351.7 m over 60.2 s = 5.84 m/s implied** — comfortably under the
+  12 m/s gate, so `isPlausible()` accepts it and the straight line is added to
+  the total. Pause, take a bus, resume, and the ride is in your run. Fixing this
+  means breaking the track across a pause rather than joining it.
 
 ## Traps that already cost time
 
@@ -130,6 +179,26 @@ emulator crashed on boot every time (see Traps). Outstanding:
   install an arm64-only APK at all ("packaged native code did not match any of
   the ABIs supported by the system"). `arm64-v8a` alone is fine for an emulator
   target and for modern phones, but not a safe default for real devices.
+- **On an 8 GB Linux box the OOM killer eats the build.** With 12 cores, AGP
+  spawns ~12 parallel clang jobs; add a 2 GB Gradle daemon and a separate Kotlin
+  daemon and the kernel kills something. It took the Gradle daemon twice
+  (`Out of memory: Killed process <pid> (java)` in `journalctl -k`) and, once,
+  qemu itself when a build ran alongside the emulator. Two mitigations, both
+  needed:
+
+  ```bash
+  bash scripts/lowmem-gradle.sh   # after EVERY prebuild — prebuild wipes it
+  cd android && taskset -c 0-3 ./gradlew assembleRelease -PreactNativeArchitectures=x86_64
+  ```
+
+  `taskset` is the load-bearing half: the JVM sizes the native build from
+  `Runtime.availableProcessors()`, which honours the affinity mask, so capping
+  cores caps the compilers. With both, x86_64 builds in a reliable ~6m 20s.
+  **Never build with the emulator running** — the 8 GB warning below is real.
+- **`scripts/emu-run.mjs` has no retry.** Any transient adb hiccup — including
+  `adb root`, which restarts adbd — kills the whole route injection mid-run with
+  `error: no emulator detected`. It also still hardcodes a Windows adb path;
+  override with the `ADB` env var.
 - **The Windows emulator is unusable on that machine** — boots to
   `sys.boot_completed=1`, then dies instantly (exit 5, crashpad dialog).
   Reproduced headless at 1536 MB and 1024 MB. Not OOM; the log ends cleanly at
