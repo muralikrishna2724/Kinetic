@@ -10,6 +10,15 @@ or all time. Dark by default, with a light theme and a system-follows setting.
 
 ---
 
+## Install it
+
+**[Download the latest APK →](https://github.com/muralikrishna2724/Kinetic/releases/latest)**
+
+One universal build, so the same file installs on 32-bit and 64-bit phones and on an
+x86_64 emulator. Uninstall any earlier version first, then allow installs from unknown
+sources. APKs live in Releases rather than in the repo — three builds had put ~174 MB
+of binaries into git history.
+
 ## Running it
 
 ```bash
