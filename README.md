@@ -145,6 +145,19 @@ segment to whichever kilometre it started in, `computeSplits()` finds the fracti
 crossing point between the two fixes that straddle each marker. Sparse tracks would
 otherwise smear the times.
 
+**A pause breaks the track rather than joining across it.** Nothing is recorded while
+paused, so the fix after a resume would otherwise connect straight to the one before
+the pause — pause, take a bus, resume, and the ride is silently in your distance. It
+passes the speed filter easily: one measured resume was 351.7 m over 60.2 s, an
+implied 5.84 m/s, nowhere near the 12 m/s gate. So the first fix after a resume
+carries a `break` flag, and every consumer skips the segment into it — distance,
+splits, elevation and live pace alike. Split timing runs on elapsed-minus-pauses for
+the same reason, or a kilometre containing a two-minute stop reads two minutes slow.
+
+The flag travels through storage (`ActiveMeta.breakPending`) rather than memory,
+because the fix that consumes it may be delivered to a headless context that never
+saw the resume happen.
+
 **Demo history is deterministic and self-retiring.** A fresh install seeds ten runs
 from a fixed PRNG so every screen has something real to render. Routes are traced in
 unit space, *measured*, then scaled to hit their target distance — sizing the geometry

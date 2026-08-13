@@ -43,3 +43,7 @@ yarn-error.*
 # Built APKs
 /dist
 
+
+# Built APKs — distributed via GitHub Releases, not tracked in git
+/release
+

@@ -39,7 +39,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "icons": "node scripts/generate-icons.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:geo": "node scripts/test-geo.mjs",
+    "gradle:lowmem": "node scripts/lowmem-gradle.mjs"
   },
   "private": true
 }

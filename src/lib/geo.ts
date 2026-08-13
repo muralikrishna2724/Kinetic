@@ -7,6 +7,21 @@ export type GeoPoint = {
   t: number;
   /** Horizontal accuracy in metres, when reported. */
   acc?: number;
+  /**
+   * First fix after a resume — the track is discontinuous here.
+   *
+   * Nothing is recorded while paused, so without this marker the fix after a
+   * resume joins straight onto the one before the pause: pause, take a bus,
+   * resume, and the ride is silently added to your distance (measured at 351.7 m
+   * across one 60 s pause, an implied 5.84 m/s that sails under the isPlausible
+   * gate). The same gap inflates any split spanning it, because split timing
+   * comes from fix timestamps.
+   *
+   * Every consumer below skips the segment *into* a break point: it contributes
+   * neither distance nor elapsed time. Absent on runs recorded before v1.0.3,
+   * which therefore behave exactly as they did.
+   */
+  break?: boolean;
 };
 
 const R = 6_371_000; // mean Earth radius, metres
@@ -47,7 +62,11 @@ export function isPlausible(prev: GeoPoint, next: GeoPoint): boolean {
 
 export function totalDistance(points: GeoPoint[]): number {
   let sum = 0;
-  for (let i = 1; i < points.length; i++) sum += haversine(points[i - 1], points[i]);
+  for (let i = 1; i < points.length; i++) {
+    // Whatever happened during the pause is not part of the run.
+    if (points[i].break) continue;
+    sum += haversine(points[i - 1], points[i]);
+  }
   return sum;
 }
 
@@ -61,6 +80,12 @@ export function elevationGain(points: GeoPoint[]): number {
 
   for (const p of points) {
     if (p.alt == null) continue;
+    // Re-baseline across a pause — climbing a flight of stairs while stopped is
+    // not elevation gained on the run.
+    if (p.break) {
+      reference = p.alt;
+      continue;
+    }
     if (reference == null) {
       reference = p.alt;
       continue;
@@ -157,29 +182,42 @@ export function computeSplits(points: GeoPoint[], unitMeters: number): Split[] {
 
   const splits: Split[] = [];
   let cumulative = 0;
-  let splitStartTime = points[0].t;
+  /**
+   * Elapsed time with paused stretches removed. Split timing is measured on
+   * this rather than on raw fix timestamps — a pause is real wall-clock time
+   * that the runner did not spend running, and charging it to whichever split
+   * happened to contain it made that kilometre read minutes slower than it was.
+   */
+  let movingMs = 0;
+  let splitStartMovingMs = 0;
   let nextBoundary = unitMeters;
   let index = 1;
 
   for (let i = 1; i < points.length; i++) {
+    // The segment into a resume contributes neither distance nor time.
+    if (points[i].break) continue;
+
     const segment = haversine(points[i - 1], points[i]);
+    const segStartDistance = cumulative;
+    const segStartMovingMs = movingMs;
+
+    cumulative += segment;
+    movingMs += Math.max(0, points[i].t - points[i - 1].t);
+
+    // A stationary segment still spends time; it just cannot cross a boundary.
     if (segment <= 0) continue;
 
-    const segStart = cumulative;
-    cumulative += segment;
-
     while (cumulative >= nextBoundary) {
-      const fraction = (nextBoundary - segStart) / segment;
-      const crossingTime =
-        points[i - 1].t + (points[i].t - points[i - 1].t) * fraction;
+      const fraction = (nextBoundary - segStartDistance) / segment;
+      const crossingMovingMs = segStartMovingMs + (movingMs - segStartMovingMs) * fraction;
 
       splits.push({
         index,
-        seconds: (crossingTime - splitStartTime) / 1000,
+        seconds: (crossingMovingMs - splitStartMovingMs) / 1000,
         meters: unitMeters,
       });
 
-      splitStartTime = crossingTime;
+      splitStartMovingMs = crossingMovingMs;
       nextBoundary += unitMeters;
       index += 1;
     }
@@ -189,7 +227,7 @@ export function computeSplits(points: GeoPoint[], unitMeters: number): Split[] {
   if (remainder > unitMeters * 0.05) {
     splits.push({
       index,
-      seconds: (points[points.length - 1].t - splitStartTime) / 1000,
+      seconds: (movingMs - splitStartMovingMs) / 1000,
       meters: remainder,
     });
   }

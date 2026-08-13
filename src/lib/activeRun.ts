@@ -27,6 +27,14 @@ export type ActiveMeta = {
   accumulatedMs: number;
   /** Start of the current moving segment, or null while paused. */
   segmentStartedAt: number | null;
+  /**
+   * Set on resume; consumed by the next fix that lands, which is then marked as
+   * a track break.
+   *
+   * It travels through storage rather than memory because the fix may well be
+   * delivered to a headless JS context that never saw the resume happen.
+   */
+  breakPending?: boolean;
 };
 
 export async function readMeta(): Promise<ActiveMeta | null> {
@@ -64,6 +72,8 @@ export async function readPoints(): Promise<GeoPoint[]> {
  */
 export async function appendPoints(fixes: GeoPoint[]): Promise<GeoPoint[]> {
   const points = await readPoints();
+  const meta = await readMeta();
+  let breakPending = meta?.breakPending === true;
 
   for (const fix of fixes) {
     const prev = points[points.length - 1];
@@ -72,7 +82,24 @@ export async function appendPoints(fixes: GeoPoint[]): Promise<GeoPoint[]> {
       points.push(fix);
       continue;
     }
+
+    if (breakPending) {
+      // First fix after a resume. It deliberately bypasses isPlausible's
+      // movement and speed gates — those compare against a point from before
+      // the pause, and the whole point of the marker is that the comparison is
+      // meaningless. Accuracy is still worth checking.
+      if (fix.acc != null && fix.acc > 35) continue;
+      points.push({ ...fix, break: true });
+      breakPending = false;
+      continue;
+    }
+
     if (isPlausible(prev, fix)) points.push(fix);
+  }
+
+  // Clear the flag only once a fix has actually claimed it.
+  if (meta?.breakPending && !breakPending) {
+    await writeMeta({ ...meta, breakPending: false });
   }
 
   try {

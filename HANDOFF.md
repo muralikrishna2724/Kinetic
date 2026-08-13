@@ -139,19 +139,36 @@ the same lesson as the v1.0.0 field failures, one layer further in.
    than a crash, because it looks like it is working. `reattach()` now forces a
    `stopLocationUpdatesAsync()` first to clear the stale registration.
 
-### Known-imperfect, deliberately not changed
+### Pause handling — fixed in v1.0.3
 
-- **Splits and moving time measure different things and diverge on a real run.**
-  Splits come from GPS timestamps; moving time is wall clock minus pauses. A
-  measured run: 502 s moving vs 404 s of splits. The gap is 159 s of idle after
-  the last fix (counted by moving time, not splits) minus a 60 s pause (counted
-  by splits, not moving time). The "splits reconcile" line under Verified was
-  measured on *seeded* data, which contains no pauses — that is why it held.
-- **A pause inflates distance if you travel during it.** The resume chord was
-  measured at **351.7 m over 60.2 s = 5.84 m/s implied** — comfortably under the
-  12 m/s gate, so `isPlausible()` accepts it and the straight line is added to
-  the total. Pause, take a bus, resume, and the ride is in your run. Fixing this
-  means breaking the track across a pause rather than joining it.
+Both issues below were found by the emulator run and left documented; both are
+now fixed, and the fix is the one the note predicted — **break the track across a
+pause rather than joining it.**
+
+`GeoPoint` gained an optional `break` flag, set on the first fix after a resume
+(routed through `ActiveMeta.breakPending`, because that fix may land in a
+headless context that never saw the resume). Every consumer skips the segment
+*into* a break point: `totalDistance`, `computeSplits`, `elevationGain`, and the
+live-pace window. Runs recorded before v1.0.3 carry no flag and are unchanged.
+
+- **A pause no longer inflates distance.** The resume chord — measured at 351.7 m
+  over 60.2 s, an implied 5.84 m/s that sails under the 12 m/s `isPlausible`
+  gate — is no longer added. Pause, take a bus, resume, and the ride stays out
+  of your run.
+- **Splits no longer charge you for the pause.** Split timing now runs on
+  elapsed-minus-pauses rather than raw fix timestamps, so a kilometre containing
+  a pause reads at the pace you actually ran it.
+
+Covered by `npm run test:geo` — 15 assertions over a synthetic track with a
+pause, the same track with the marker stripped (asserting the old numbers), a
+clean run, and the `isPlausible` gates. That suite exists because this bug was
+invisible to a typecheck, a bundle, a browser walkthrough *and* an emulator run:
+only arithmetic over a track containing a pause exposes it.
+
+**Still true:** moving time and total split time measure different things and
+will not agree exactly. Moving time is wall clock minus pauses and keeps running
+when fixes stop arriving; split time only accrues between fixes. A long idle
+stretch with the app open but stationary still shows up in one and not the other.
 
 ## Traps that already cost time
 
@@ -187,7 +204,7 @@ the same lesson as the v1.0.0 field failures, one layer further in.
   needed:
 
   ```bash
-  bash scripts/lowmem-gradle.sh   # after EVERY prebuild — prebuild wipes it
+  npm run gradle:lowmem           # after EVERY prebuild — prebuild wipes it
   cd android && taskset -c 0-3 ./gradlew assembleRelease -PreactNativeArchitectures=x86_64
   ```
 

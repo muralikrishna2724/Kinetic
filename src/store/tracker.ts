@@ -322,7 +322,9 @@ export const useTracker = create<TrackerState>((set, get) => ({
     startTimer(set, get);
 
     if (startedAt != null) {
-      await writeMeta({ startedAt, accumulatedMs, segmentStartedAt: now });
+      // breakPending marks the next fix as a track discontinuity, so the
+      // distance covered while paused is not joined onto the run.
+      await writeMeta({ startedAt, accumulatedMs, segmentStartedAt: now, breakPending: true });
     }
     if (!get().mode) {
       const mode = await beginRecording();
@@ -467,9 +469,16 @@ export function selectCurrentPace(s: TrackerState): { meters: number; seconds: n
   while (i > 0 && pts[i - 1].t >= cutoff) i--;
 
   let meters = 0;
-  for (let j = i + 1; j < pts.length; j++) meters += haversine(pts[j - 1], pts[j]);
+  let ms = 0;
+  for (let j = i + 1; j < pts.length; j++) {
+    // Same rule as everywhere else: a pause contributes neither, so live pace
+    // does not spike on the first fix after a resume.
+    if (pts[j].break) continue;
+    meters += haversine(pts[j - 1], pts[j]);
+    ms += Math.max(0, pts[j].t - pts[j - 1].t);
+  }
 
-  return { meters, seconds: (pts[pts.length - 1].t - pts[i].t) / 1000 };
+  return { meters, seconds: ms / 1000 };
 }
 
 function titleForHour(hour: number): string {
